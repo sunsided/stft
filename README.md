@@ -2,8 +2,7 @@
 
 *status: working. missing some tests. api still in flux.*
 
-[![Build Status](https://travis-ci.org/snd/stft.svg?branch=master)](https://travis-ci.org/snd/stft/branches)
-[![](https://meritbadge.herokuapp.com/stft)](https://crates.io/crates/stft)
+![Build Status](https://github.com/sunsided/stft/actions/workflows/rust.yml/badge.svg)
 
 **computes the [short-time fourier transform](https://en.wikipedia.org/wiki/Short-time_Fourier_transform)
 on streaming data. written in [rust](https://www.rust-lang.org/).**
