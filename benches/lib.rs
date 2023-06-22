@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use num::complex::Complex;
 use rustfft::{FftDirection, FftPlanner};
-use stft::{WindowType, STFT};
+use ruststft::{WindowType, STFT};
 
 macro_rules! bench_fft_process {
     ($c:expr, $window_size:expr, $float:ty) => {{

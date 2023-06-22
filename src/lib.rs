@@ -9,7 +9,7 @@ to the `[dependencies]` section of your `Cargo.toml` and call `extern crate stft
 ## example
 
 ```
-use stft::{STFT, WindowType};
+use ruststft::{STFT, WindowType};
 
 // let's generate ten seconds of fake audio
 let sample_rate: usize = 44100;
