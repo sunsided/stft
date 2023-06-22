@@ -9,7 +9,7 @@ name = "ruststft"
 readme = "README.md"
 repository = "https://github.com/sunsided/stft.git"
 version = "0.2.0"
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 apodize = "1.0.0"
