@@ -1,5 +1,5 @@
 [package]
-authors = ["Maximilian Krüger <kruemaxi@gmail.com>"]
+authors = ["Maximilian Krüger <kruemaxi@gmail.com>", "Markus Mayer <widemeadows@gmail.com>"]
 description = "computes the short-time fourier transform on streaming data"
 documentation = "https://snd.github.io/stft/stft/index.html"
 homepage = "https://github.com/sunsided/stft"
@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 name = "ruststft"
 readme = "README.md"
 repository = "https://github.com/sunsided/stft.git"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 [dependencies]
