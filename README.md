@@ -101,6 +101,7 @@ while stft.ready() {
 | `ndarray` |   no    | `Spectrogram::to_array2` (`[n_freqs, n_frames]`).        |
 | `rayon`   |   no    | Parallel per-frame batch spectrograms.                   |
 | `serde`   |   no    | (De)serialize configuration and window descriptions.     |
+| `wasm_simd` | no    | WASM `simd128` FFT kernels (implies `std`; build with `-C target-feature=+simd128`). |
 
 Without the default `std` feature the crate builds as `no_std` (with `alloc`),
 exposing the window library, the [`spectrum`](https://docs.rs/ruststft/latest/ruststft/spectrum/)

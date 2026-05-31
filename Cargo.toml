@@ -29,6 +29,9 @@ ndarray = ["dep:ndarray", "std"]
 rayon = ["dep:rayon", "std"]
 # `serde` derives on the configuration and window-specification types.
 serde = ["dep:serde"]
+# Enable the WASM SIMD (`simd128`) FFT kernels. Implies `std`. Only takes
+# effect on `wasm32` targets built with `-C target-feature=+simd128`.
+wasm_simd = ["std", "realfft/wasm_simd"]
 
 [dependencies]
 num-complex = { version = "0.4.6", default-features = false, features = ["libm"] }
