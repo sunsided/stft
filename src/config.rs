@@ -27,8 +27,8 @@ pub enum Scaling {
 /// How a signal is padded when centered framing is enabled in batch mode.
 ///
 /// With [`center`](crate::StftBuilder::center) enabled the signal is padded by
-/// `fft_size / 2` samples on each side so that frame `t` is centered on sample
-/// `t * hop`, matching librosa's convention.
+/// `frame_len / 2` samples on each side so that frame `t` is centered on sample
+/// `t * hop`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum PadMode {

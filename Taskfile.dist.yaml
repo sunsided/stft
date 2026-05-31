@@ -72,9 +72,11 @@ tasks:
       - cargo test --doc --all-features
 
   test:no-std:
-    desc: Run tests without default features
+    desc: Build the library without default features (the no_std subset; the
+      FFT processors and integration tests require std)
     cmds:
-      - cargo test --no-default-features --features mel {{.CLI_ARGS}}
+      - cargo build --lib --no-default-features {{.CLI_ARGS}}
+      - cargo build --lib --no-default-features --features mel,serde
 
   bench:
     desc: Run the criterion benchmarks

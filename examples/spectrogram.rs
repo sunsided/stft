@@ -9,12 +9,18 @@ fn main() {
     let fs = 16_000.0;
     let n = fs as usize * 2; // 2 seconds
 
-    // A linear chirp sweeping from 200 Hz to 4 kHz.
+    // A linear chirp sweeping from 200 Hz to 4 kHz over 2 seconds. The phase is
+    // the integral of the instantaneous frequency f(t) = f0 + k*t, so the
+    // sweep actually starts at f0 (a bare `sin(pi*f*t)` would start at f0/2).
+    let f0 = 200.0f32;
+    let f1 = 4000.0f32;
+    let duration = n as f32 / fs;
+    let k = (f1 - f0) / duration; // Hz per second
     let signal: Vec<f32> = (0..n)
         .map(|i| {
             let t = i as f32 / fs;
-            let f = 200.0 + (4000.0 - 200.0) * (t / 2.0);
-            (std::f32::consts::PI * f * t).sin()
+            let phase = 2.0 * std::f32::consts::PI * (f0 * t + 0.5 * k * t * t);
+            phase.sin()
         })
         .collect();
 

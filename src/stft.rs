@@ -67,7 +67,7 @@ impl<T: Sample + FftNum> StftBuilder<T> {
     }
 
     /// Enable centered framing for batch [`spectrogram`](Stft::spectrogram):
-    /// the signal is padded by `fft_size / 2` on each side.
+    /// the signal is padded by `frame_len / 2` on each side.
     pub fn center(mut self, center: bool) -> Self {
         self.center = center;
         self
