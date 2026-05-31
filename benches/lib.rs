@@ -1,7 +1,9 @@
-//! Criterion benchmarks for the forward/inverse STFT.
+//! Criterion benchmarks for windows, the forward/inverse STFT, spectrum
+//! helpers and (optionally) the mel transforms.
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use ruststft::{Complex, Stft, Window};
+use ruststft::spectrum::{magnitude_into, power_to_db};
+use ruststft::{Complex, Stft, Symmetry, Window, WindowFunction};
 
 fn signal_f32(seconds: usize) -> Vec<f32> {
     let fs = 44_100usize;
@@ -21,6 +23,23 @@ fn signal_f64(seconds: usize) -> Vec<f64> {
             0.5 * (2.0 * std::f64::consts::PI * 440.0 * t).sin()
         })
         .collect()
+}
+
+fn bench_window(c: &mut Criterion) {
+    let mut group = c.benchmark_group("window_generation");
+    for &len in &[1024usize, 4096] {
+        for (label, func) in [
+            ("hann", WindowFunction::Hann),
+            ("blackman_harris", WindowFunction::BlackmanHarris),
+            ("kaiser", WindowFunction::Kaiser { beta: 8.6 }),
+            ("gaussian", WindowFunction::Gaussian { std: 128.0 }),
+        ] {
+            group.bench_with_input(BenchmarkId::new(label, len), &len, |b, &len| {
+                b.iter(|| Window::<f64>::new(func, len, Symmetry::Periodic));
+            });
+        }
+    }
+    group.finish();
 }
 
 fn bench_forward(c: &mut Criterion) {
@@ -87,5 +106,83 @@ fn bench_round_trip(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_forward, bench_streaming, bench_round_trip);
+fn bench_spectrum(c: &mut Criterion) {
+    let signal = signal_f64(5);
+    let mut stft = Stft::builder()
+        .window(Window::<f64>::hann(1024))
+        .hop_size(256)
+        .build()
+        .unwrap();
+    let spec = stft.spectrogram(&signal);
+
+    let mut group = c.benchmark_group("spectrum");
+    group.bench_function("magnitude_full", |b| {
+        let mut mag = vec![0.0f64; spec.n_freqs()];
+        b.iter(|| {
+            for col in spec.columns() {
+                magnitude_into(col, &mut mag);
+            }
+        });
+    });
+    group.bench_function("power_to_db_full", |b| {
+        let mut powers: Vec<f64> = spec.as_flat().iter().map(|z| z.norm_sqr()).collect();
+        b.iter(|| power_to_db(&mut powers, 1.0, Some(80.0)));
+    });
+    group.finish();
+}
+
+#[cfg(feature = "mel")]
+fn bench_mel(c: &mut Criterion) {
+    use ruststft::mel::{DctII, MelFilterBank, MelScale};
+    use ruststft::spectrum::power;
+
+    let fs = 16_000.0;
+    let n_fft = 1024usize;
+    let signal = signal_f64(5);
+    let mut stft = Stft::builder()
+        .window(Window::<f64>::hann(n_fft))
+        .hop_size(n_fft / 4)
+        .build()
+        .unwrap();
+    let spec = stft.spectrogram(&signal);
+    let bank = MelFilterBank::<f64>::new(40, n_fft, fs, 0.0, fs / 2.0, MelScale::Slaney);
+    let dct = DctII::<f64>::new(40, 13);
+
+    let mut group = c.benchmark_group("mel");
+    group.bench_function("logmel_mfcc_full", |b| {
+        let mut mel = vec![0.0f64; 40];
+        let mut mfcc = vec![0.0f64; 13];
+        b.iter(|| {
+            for col in spec.columns() {
+                let p = power(col);
+                bank.transform_into(&p, &mut mel);
+                power_to_db(&mut mel, 1.0, None);
+                dct.transform_into(&mel, &mut mfcc);
+            }
+        });
+    });
+    group.finish();
+}
+
+#[cfg(feature = "mel")]
+criterion_group!(
+    benches,
+    bench_window,
+    bench_forward,
+    bench_streaming,
+    bench_round_trip,
+    bench_spectrum,
+    bench_mel
+);
+
+#[cfg(not(feature = "mel"))]
+criterion_group!(
+    benches,
+    bench_window,
+    bench_forward,
+    bench_streaming,
+    bench_round_trip,
+    bench_spectrum
+);
+
 criterion_main!(benches);

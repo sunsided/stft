@@ -3,7 +3,7 @@
 version: '3'
 
 vars:
-  MSRV: '1.75'
+  MSRV: '1.85'
 
 tasks:
   default:
@@ -82,6 +82,33 @@ tasks:
     desc: Run the criterion benchmarks
     cmds:
       - cargo bench --all-features {{.CLI_ARGS}}
+
+  fuzz:list:
+    desc: List the available fuzz targets
+    cmds:
+      - cargo +nightly fuzz list
+
+  fuzz:build:
+    desc: Build all libFuzzer targets (requires nightly + cargo-fuzz)
+    preconditions:
+      - sh: command -v cargo-fuzz
+        msg: "cargo-fuzz not found — cargo install cargo-fuzz"
+      - sh: rustup toolchain list | grep -q nightly
+        msg: "nightly toolchain required — rustup toolchain install nightly"
+    cmds:
+      - cargo +nightly fuzz build
+
+  fuzz:run:
+    desc: 'Run one target, e.g. task fuzz:run -- stft_roundtrip -max_total_time=60'
+    cmds:
+      - cargo +nightly fuzz run {{.CLI_ARGS}}
+
+  fuzz:smoke:
+    desc: Briefly run every fuzz target (panic check, CI-friendly)
+    deps: [fuzz:build]
+    cmds:
+      - for: ['stft_roundtrip', 'stft_config', 'window']
+        cmd: cargo +nightly fuzz run {{.ITEM}} -- -max_total_time=30 -print_final_stats=1
 
   doc:
     desc: Build rustdoc with all features (docs.rs config)
