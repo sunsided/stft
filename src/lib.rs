@@ -114,3 +114,9 @@ pub use stft::{Stft, StftBuilder};
 // Re-export the complex number type so downstream users do not need to track
 // the exact `num-complex` version themselves.
 pub use num_complex::Complex;
+
+// Compile and run the README code examples as doctests (only during testing,
+// so the rendered crate docs are unaffected). Keeps the README from rotting.
+#[cfg(doctest)]
+#[doc = include_str!("../README.md")]
+struct ReadmeDoctests;

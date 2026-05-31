@@ -3,6 +3,7 @@
 [![CI](https://github.com/sunsided/stft/actions/workflows/ci.yml/badge.svg)](https://github.com/sunsided/stft/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/ruststft.svg)](https://crates.io/crates/ruststft)
 [![docs.rs](https://img.shields.io/docsrs/ruststft)](https://docs.rs/ruststft)
+[![MSRV](https://img.shields.io/badge/MSRV-1.85-blue.svg)](https://www.rust-lang.org)
 [![unsafe forbidden](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance/)
 ![license](https://img.shields.io/crates/l/ruststft.svg)
 
@@ -29,6 +30,8 @@ streaming APIs, and optional mel spectrograms / MFCCs.
 [dependencies]
 ruststft = "0.4"
 ```
+
+Minimum supported Rust version: **1.85**.
 
 ## Batch spectrogram
 
@@ -90,6 +93,16 @@ while stft.ready() {
     // ... use `column` ...
     stft.step();
 }
+```
+
+## Examples
+
+Runnable programs live in [`examples/`](examples):
+
+```sh
+cargo run --example spectrogram         # chirp -> magnitude spectrogram in dB
+cargo run --example roundtrip           # STFT -> ISTFT perfect reconstruction
+cargo run --example mfcc --features mel # power -> mel -> dB -> MFCCs
 ```
 
 ## Feature flags
