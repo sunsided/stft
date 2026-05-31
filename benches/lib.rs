@@ -1,134 +1,91 @@
-use criterion::{criterion_group, criterion_main, Criterion};
-use num::complex::Complex;
-use rustfft::{FftDirection, FftPlanner};
-use ruststft::{WindowType, STFT};
+//! Criterion benchmarks for the forward/inverse STFT.
 
-macro_rules! bench_fft_process {
-    ($c:expr, $window_size:expr, $float:ty) => {{
-        let mut planner = FftPlanner::new();
-        let fft = planner.plan_fft($window_size, FftDirection::Forward);
-        // input is processed in-place
-        let mut output = std::iter::repeat(Complex::new(0., 0.))
-            .take($window_size)
-            .collect::<Vec<Complex<$float>>>();
-        $c.bench_function(
-            concat!(
-                "bench_fft_process_",
-                stringify!($window_size),
-                "_",
-                stringify!($float)
-            ),
-            |b| b.iter(|| fft.process(&mut output[..])),
-        );
-    }};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use ruststft::{Complex, Stft, Window};
+
+fn signal_f32(seconds: usize) -> Vec<f32> {
+    let fs = 44_100usize;
+    (0..fs * seconds)
+        .map(|n| {
+            let t = n as f32 / fs as f32;
+            0.5 * (2.0 * std::f32::consts::PI * 440.0 * t).sin()
+        })
+        .collect()
 }
 
-fn bench_fft_process_1024_f32(c: &mut Criterion) {
-    bench_fft_process!(c, 1024, f32);
+fn signal_f64(seconds: usize) -> Vec<f64> {
+    let fs = 44_100usize;
+    (0..fs * seconds)
+        .map(|n| {
+            let t = n as f64 / fs as f64;
+            0.5 * (2.0 * std::f64::consts::PI * 440.0 * t).sin()
+        })
+        .collect()
 }
 
-fn bench_fft_process_1024_f64(c: &mut Criterion) {
-    bench_fft_process!(c, 1024, f64);
+fn bench_forward(c: &mut Criterion) {
+    let mut group = c.benchmark_group("forward_spectrogram");
+    let s32 = signal_f32(10);
+    let s64 = signal_f64(10);
+    group.throughput(Throughput::Elements(s32.len() as u64));
+
+    for &win in &[1024usize, 4096] {
+        group.bench_with_input(BenchmarkId::new("f32", win), &win, |b, &win| {
+            let mut stft = Stft::builder()
+                .window(Window::<f32>::hann(win))
+                .hop_size(win / 4)
+                .build()
+                .unwrap();
+            b.iter(|| stft.spectrogram(&s32));
+        });
+        group.bench_with_input(BenchmarkId::new("f64", win), &win, |b, &win| {
+            let mut stft = Stft::builder()
+                .window(Window::<f64>::hann(win))
+                .hop_size(win / 4)
+                .build()
+                .unwrap();
+            b.iter(|| stft.spectrogram(&s64));
+        });
+    }
+    group.finish();
 }
 
-criterion_group!(
-    benches_fft_process,
-    bench_fft_process_1024_f32,
-    bench_fft_process_1024_f64
-);
-
-macro_rules! bench_stft_compute {
-    ($c:expr, $window_size:expr, $float:ty) => {{
-        let step_size: usize = 512;
-        let mut stft = STFT::<$float>::new(WindowType::Hanning, $window_size, step_size);
-        let input = std::iter::repeat(1.)
-            .take($window_size)
-            .collect::<Vec<$float>>();
-        let mut output = std::iter::repeat(0.)
-            .take(stft.output_size())
-            .collect::<Vec<$float>>();
-        stft.append_samples(&input[..]);
-        $c.bench_function(
-            concat!(
-                "bench_stft_compute_",
-                stringify!($window_size),
-                "_",
-                stringify!($float)
-            ),
-            |b| b.iter(|| stft.compute_column(&mut output[..])),
-        );
-    }};
+fn bench_streaming(c: &mut Criterion) {
+    let signal = signal_f32(10);
+    c.bench_function("streaming_columns_1024_f32", |b| {
+        b.iter(|| {
+            let mut stft = Stft::builder()
+                .window(Window::<f32>::hann(1024))
+                .hop_size(512)
+                .build()
+                .unwrap();
+            let mut column = vec![Complex::new(0.0f32, 0.0); stft.n_freqs()];
+            for chunk in signal.chunks(4096) {
+                stft.append(chunk);
+                while stft.ready() {
+                    stft.process_into(&mut column).unwrap();
+                    stft.step();
+                }
+            }
+        });
+    });
 }
 
-fn bench_stft_compute_1024_f32(c: &mut Criterion) {
-    bench_stft_compute!(c, 1024, f32);
+fn bench_round_trip(c: &mut Criterion) {
+    let signal = signal_f64(5);
+    c.bench_function("round_trip_1024_f64", |b| {
+        let mut stft = Stft::builder()
+            .window(Window::<f64>::hann(1024))
+            .hop_size(256)
+            .build()
+            .unwrap();
+        b.iter(|| {
+            let spec = stft.spectrogram(&signal);
+            let istft = stft.inverse().unwrap();
+            istft.reconstruct(&spec).unwrap()
+        });
+    });
 }
 
-fn bench_stft_compute_1024_f64(c: &mut Criterion) {
-    bench_stft_compute!(c, 1024, f64);
-}
-
-criterion_group!(
-    benches_stft_compute,
-    bench_stft_compute_1024_f32,
-    bench_stft_compute_1024_f64
-);
-
-macro_rules! bench_stft_audio {
-    ($c:expr, $seconds:expr, $float:ty) => {{
-        // let's generate some fake audio
-        let sample_rate: usize = 44100;
-        let seconds: usize = $seconds;
-        let sample_count = sample_rate * seconds;
-        let all_samples = (0..sample_count)
-            .map(|x| x as $float)
-            .collect::<Vec<$float>>();
-        $c.bench_function(
-            concat!(
-                "bench_stft_audio_",
-                stringify!($windowsize),
-                "_",
-                stringify!($float)
-            ),
-            |b| {
-                b.iter(|| {
-                    // let's initialize our short-time fourier transform
-                    let window_type: WindowType = WindowType::Hanning;
-                    let window_size: usize = 1024;
-                    let step_size: usize = 512;
-                    let mut stft = STFT::<$float>::new(window_type, window_size, step_size);
-                    // we need a buffer to hold a computed column of the spectrogram
-                    let mut spectrogram_column: Vec<$float> =
-                        std::iter::repeat(0.).take(stft.output_size()).collect();
-                    for some_samples in (&all_samples[..]).chunks(3000) {
-                        stft.append_samples(some_samples);
-                        while stft.contains_enough_to_compute() {
-                            stft.compute_column(&mut spectrogram_column[..]);
-                            stft.move_to_next_column();
-                        }
-                    }
-                })
-            },
-        );
-    }};
-}
-
-fn bench_stft_10_seconds_audio_f32(c: &mut Criterion) {
-    bench_stft_audio!(c, 10, f32);
-}
-
-fn bench_stft_10_seconds_audio_f64(c: &mut Criterion) {
-    bench_stft_audio!(c, 10, f64);
-}
-
-criterion_group!(
-    benches_stft_audio,
-    bench_stft_10_seconds_audio_f32,
-    bench_stft_10_seconds_audio_f64
-);
-
-criterion_main!(
-    benches_fft_process,
-    benches_stft_compute,
-    benches_stft_audio
-);
+criterion_group!(benches, bench_forward, bench_streaming, bench_round_trip);
+criterion_main!(benches);
