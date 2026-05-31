@@ -1,0 +1,43 @@
+[package]
+name = "ruststft-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+
+[dependencies.ruststft]
+path = ".."
+features = ["mel"]
+
+[[bin]]
+name = "stft_roundtrip"
+path = "fuzz_targets/stft_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "stft_config"
+path = "fuzz_targets/stft_config.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "window"
+path = "fuzz_targets/window.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = 1
+
+# Keep the fuzz crate out of the parent package's build graph.
+[workspace]
