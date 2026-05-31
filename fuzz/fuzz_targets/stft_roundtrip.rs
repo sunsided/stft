@@ -11,6 +11,7 @@ fuzz_target!(|data: &[u8]| {
         .chunks_exact(4)
         .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
         .filter(|x| x.is_finite())
+        .take(1 << 16) // cap input size so large corpora can't OOM/timeout
         .collect();
     if samples.len() < 256 {
         return;

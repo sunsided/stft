@@ -16,7 +16,7 @@ struct Input {
 
 fuzz_target!(|input: Input| {
     let win = ((input.win % 2048) as usize).max(1);
-    let hop = ((input.hop as usize) % win).max(1); // 1..=win
+    let hop = (input.hop as usize % win) + 1; // 1..=win (includes the non-overlapping case)
     let fft = win + (input.pad as usize % 4096); // >= win, bounded to avoid OOM
 
     let mut stft = match Stft::builder()
@@ -33,6 +33,7 @@ fuzz_target!(|input: Input| {
         .samples
         .into_iter()
         .filter(|x| x.is_finite())
+        .take(1 << 16) // cap consumed samples to keep iterations fast and bounded
         .collect();
     stft.append(&samples);
 

@@ -125,8 +125,14 @@ fn bench_spectrum(c: &mut Criterion) {
         });
     });
     group.bench_function("power_to_db_full", |b| {
-        let mut powers: Vec<f64> = spec.as_flat().iter().map(|z| z.norm_sqr()).collect();
-        b.iter(|| power_to_db(&mut powers, 1.0, Some(80.0)));
+        // `power_to_db` mutates in place, so restore a fresh power buffer each
+        // iteration from an immutable baseline.
+        let baseline: Vec<f64> = spec.as_flat().iter().map(|z| z.norm_sqr()).collect();
+        b.iter_batched_ref(
+            || baseline.clone(),
+            |powers| power_to_db(powers, 1.0, Some(80.0)),
+            criterion::BatchSize::SmallInput,
+        );
     });
     group.finish();
 }
@@ -138,7 +144,14 @@ fn bench_mel(c: &mut Criterion) {
 
     let fs = 16_000.0;
     let n_fft = 1024usize;
-    let signal = signal_f64(5);
+    // Generate the signal at `fs` so the mel filterbank bins line up with the
+    // spectrogram bins (signal_f64 is hardcoded to 44.1 kHz).
+    let signal: Vec<f64> = (0..(fs as usize) * 5)
+        .map(|n| {
+            let t = n as f64 / fs;
+            0.5 * (2.0 * std::f64::consts::PI * 440.0 * t).sin()
+        })
+        .collect();
     let mut stft = Stft::builder()
         .window(Window::<f64>::hann(n_fft))
         .hop_size(n_fft / 4)

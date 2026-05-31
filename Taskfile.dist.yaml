@@ -99,7 +99,7 @@ tasks:
       - cargo +nightly fuzz build
 
   fuzz:run:
-    desc: 'Run one target, e.g. task fuzz:run -- stft_roundtrip -max_total_time=60'
+    desc: 'Run one target, e.g. task fuzz:run -- stft_roundtrip -- -max_total_time=60'
     cmds:
       - cargo +nightly fuzz run {{.CLI_ARGS}}
 
