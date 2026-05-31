@@ -1,26 +1,62 @@
 [package]
-authors = ["Maximilian Krüger <kruemaxi@gmail.com>", "Markus Mayer <widemeadows@gmail.com>"]
-description = "computes the short-time fourier transform on streaming data"
+authors = [
+    "Maximilian Krüger <kruemaxi@gmail.com>",
+    "Markus Mayer <widemeadows@gmail.com>",
+]
+categories = ["science", "multimedia::audio", "mathematics", "no-std"]
+description = "Short-time Fourier transform (STFT) and inverse STFT: streaming and batch spectrograms, a rich window library, mel spectrograms and MFCCs."
 documentation = "https://docs.rs/ruststft"
+edition = "2021"
 homepage = "https://github.com/sunsided/stft"
-keywords = ["dsp", "fft", "stream", "data", "fourier"]
+keywords = ["dsp", "fft", "stft", "spectrogram", "mfcc"]
 license = "MIT OR Apache-2.0"
 name = "ruststft"
 readme = "README.md"
 repository = "https://github.com/sunsided/stft.git"
-version = "0.3.1"
-edition = "2021"
+rust-version = "1.75"
+version = "0.4.0"
+
+[features]
+default = ["std"]
+# Enables the FFT-backed processors (forward/inverse STFT, batch spectrograms).
+# Required because the `realfft`/`rustfft` backend depends on `std`.
+std = ["dep:realfft", "num-traits/std", "num-complex/std"]
+# Mel filterbank, (log-)mel spectrogram and MFCC. Pure math, `no_std`-capable.
+mel = []
+# `Array2` input/output for batch spectrograms. Pulls in `std`.
+ndarray = ["dep:ndarray", "std"]
+# Parallel per-frame batch STFT. Pulls in `std`.
+rayon = ["dep:rayon", "std"]
+# `serde` derives on the configuration and window-specification types.
+serde = ["dep:serde"]
 
 [dependencies]
-apodize = "1.0.0"
-num = "0.4.0"
-rustfft = "6.1.0"
-strider = "0.1.3"
+num-complex = { version = "0.4.6", default-features = false, features = ["libm"] }
+num-traits = { version = "0.2.19", default-features = false, features = ["libm"] }
+realfft = { version = "3.4.0", optional = true }
+ndarray = { version = "0.16.1", optional = true, default-features = false, features = ["std"] }
+rayon = { version = "1.10.0", optional = true }
+serde = { version = "1.0", optional = true, default-features = false, features = ["derive", "alloc"] }
 
 [dev-dependencies]
-criterion = "0.5.1"
 approx = "0.5.1"
+criterion = "0.5.1"
+proptest = "1.6.0"
 
 [[bench]]
 name = "lib"
 harness = false
+
+[[example]]
+name = "mfcc"
+required-features = ["mel"]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "deny"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
