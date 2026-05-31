@@ -13,7 +13,7 @@ license = "MIT OR Apache-2.0"
 name = "ruststft"
 readme = "README.md"
 repository = "https://github.com/sunsided/stft.git"
-rust-version = "1.75"
+rust-version = "1.85"
 version = "0.4.0"
 
 [features]
