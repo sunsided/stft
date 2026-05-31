@@ -126,3 +126,26 @@ jobs:
         uses: advanced-security/spdx-dependency-submission-action@v0.2.0
         with:
           filePath: sbom.json
+
+  fuzz:
+    name: fuzz smoke
+    runs-on: ubuntu-latest
+    # cargo-fuzz / libFuzzer require the nightly compiler (sanitizer flags).
+    # Clear the global `-D warnings` so it does not interfere with the
+    # instrumentation flags cargo-fuzz injects.
+    env:
+      RUSTFLAGS: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/install-action@cargo-fuzz
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - name: Build fuzz targets
+        run: cargo fuzz build
+      - name: Smoke-run each target
+        run: |
+          for target in stft_roundtrip stft_config window; do
+            cargo fuzz run "$target" -- -max_total_time=60 -print_final_stats=1
+          done
