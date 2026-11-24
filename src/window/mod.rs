@@ -55,7 +55,7 @@ pub enum WindowFunction {
     Triangular,
     /// Welch (parabolic) window.
     Welch,
-    /// Cosine (sine) window.
+    /// Cosine (sine) window `sin(π·(i + ½)/m)`, matching SciPy.
     Cosine,
     /// Tukey (tapered cosine) window; `alpha` is the taper fraction in `0..=1`.
     Tukey {
