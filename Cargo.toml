@@ -14,7 +14,7 @@ name = "ruststft"
 readme = "README.md"
 repository = "https://github.com/sunsided/stft.git"
 rust-version = "1.85"
-version = "0.4.0"
+version = "0.4.1"
 
 [features]
 default = ["std"]

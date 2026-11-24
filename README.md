@@ -14,7 +14,8 @@ streaming APIs, and optional mel spectrograms / MFCCs.
 - **Forward STFT** over real signals, streaming or batch, backed by
   [`realfft`](https://crates.io/crates/realfft) (≈2× faster and half the memory
   of a full complex FFT on real input).
-- **Inverse STFT** with weighted overlap-add (WOLA) for perfect reconstruction.
+- **Inverse STFT** with weighted overlap-add (WOLA) for perfect reconstruction,
+  streaming or batch.
 - **Windows**: rectangular, Hann, Hamming, Blackman, Blackman-Harris, Nuttall,
   flat-top, Bartlett, triangular, Welch, cosine, Tukey, Kaiser, Gaussian -
   periodic (spectral-analysis) or symmetric (filter-design).
@@ -69,9 +70,17 @@ let mut stft = Stft::builder()
     .unwrap();
 
 let spec = stft.spectrogram(&signal);
-let recon = stft.inverse().unwrap().reconstruct(&spec).unwrap();
+let recon = stft
+    .inverse()
+    .unwrap()
+    .reconstruct_with_len(&spec, signal.len())
+    .unwrap();
+assert_eq!(recon.len(), signal.len());
 // recon matches `signal` in the interior to ~machine precision.
 ```
+
+`reconstruct` without a length returns only the samples the frames reach,
+which can be up to `hop - 1` fewer than the input.
 
 ## Streaming
 
@@ -93,6 +102,30 @@ while stft.ready() {
     // ... use `column` ...
     stft.step();
 }
+```
+
+The inverse streams too: feed columns with `process_column` and collect the
+finished samples with `drain_ready`, so memory stays bounded on long signals.
+
+```rust
+use ruststft::{Stft, Window};
+
+let mut stft = Stft::builder()
+    .window(Window::<f32>::hann(1024))
+    .hop_size(256)
+    .build()
+    .unwrap();
+let mut istft = stft.inverse().unwrap();
+
+let chunk: Vec<f32> = (0..3000).map(|x| (x as f32 * 0.01).sin()).collect();
+let mut output = Vec::new();
+
+stft.append(&chunk);
+for column in stft.columns() {
+    istft.process_column(&column).unwrap();
+    istft.drain_ready(&mut output); // ... use the new samples in `output` ...
+}
+output.extend(istft.finish());
 ```
 
 ## Examples

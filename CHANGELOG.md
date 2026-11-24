@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.1]
+
 ### Added
 
 - `Istft::drain_ready()` streams reconstructed samples out between columns, so
@@ -72,5 +74,6 @@ have been removed.
 - Bin center frequencies are now `k · fs / fft_size` (previously
   `k · fs / (2·(n_freqs − 1))`, which was off).
 
-[Unreleased]: https://github.com/sunsided/stft/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/sunsided/stft/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/sunsided/stft/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/sunsided/stft/compare/v0.3.1...v0.4.0
