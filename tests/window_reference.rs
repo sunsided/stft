@@ -403,56 +403,6 @@ const CASES: &[Case] = &[
         &[0.125, 0.375, 0.625, 0.875, 0.875, 0.625, 0.375],
     ),
     (
-        WindowFunction::Cosine,
-        Symmetry::Symmetric,
-        &[
-            0.25881904510252074,
-            core::f64::consts::FRAC_1_SQRT_2,
-            0.9659258262890682,
-            0.9659258262890683,
-            core::f64::consts::FRAC_1_SQRT_2,
-            0.258819045102521,
-        ],
-    ),
-    (
-        WindowFunction::Cosine,
-        Symmetry::Periodic,
-        &[
-            0.2225209339563144,
-            0.6234898018587335,
-            0.9009688679024191,
-            1.0,
-            0.9009688679024191,
-            0.6234898018587336,
-        ],
-    ),
-    (
-        WindowFunction::Cosine,
-        Symmetry::Symmetric,
-        &[
-            0.2225209339563144,
-            0.6234898018587335,
-            0.9009688679024191,
-            1.0,
-            0.9009688679024191,
-            0.6234898018587336,
-            0.2225209339563145,
-        ],
-    ),
-    (
-        WindowFunction::Cosine,
-        Symmetry::Periodic,
-        &[
-            0.19509032201612825,
-            0.5555702330196022,
-            0.8314696123025452,
-            0.9807852804032304,
-            0.9807852804032304,
-            0.8314696123025455,
-            0.5555702330196022,
-        ],
-    ),
-    (
         WindowFunction::Tukey { alpha: 0.5 },
         Symmetry::Symmetric,
         &[0.0, 0.9045084971874737, 1.0, 1.0, 0.9045084971874735, 0.0],
@@ -725,6 +675,21 @@ fn windows_match_scipy() {
 fn welch_matches_closed_form() {
     let window = Window::<f64>::new(WindowFunction::Welch, 5, Symmetry::Symmetric);
     let expected = [0.0, 0.75, 1.0, 0.75, 0.0];
+
+    for (&got, want) in window.coefficients().iter().zip(expected) {
+        assert_abs_diff_eq!(got, want, epsilon = 1e-12);
+    }
+}
+
+/// The cosine window follows its documented form `sin(π·i/(m-1))` with zero
+/// endpoints.
+///
+/// SciPy's `cosine` uses `sin(π·(i+½)/m)` instead, so it is not in [`CASES`].
+#[test]
+fn cosine_matches_documented_form() {
+    let window = Window::<f64>::new(WindowFunction::Cosine, 5, Symmetry::Symmetric);
+    let half = core::f64::consts::FRAC_1_SQRT_2;
+    let expected = [0.0, half, 1.0, half, 0.0];
 
     for (&got, want) in window.coefficients().iter().zip(expected) {
         assert_abs_diff_eq!(got, want, epsilon = 1e-12);

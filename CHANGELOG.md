@@ -6,12 +6,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Changed
-
-- The cosine (sine) window now follows `scipy.signal.windows.cosine`,
-  `sin(π·(i + ½)/m)`, instead of `sin(π·i/(m-1))`. It no longer has zero
-  endpoints, so every sample in the frame carries weight.
-
 ## [0.4.0]
 
 This is a ground-up redesign with a clean, encapsulated API. The old `STFT`

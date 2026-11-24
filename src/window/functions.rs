@@ -73,13 +73,13 @@ pub(super) fn flat_top(m: usize) -> Vec<f64> {
     )
 }
 
-/// Sine (a.k.a. cosine) window: `w[i] = sin(π·(i + ½)/m)`, matching
-/// `scipy.signal.windows.cosine`.
-///
-/// The window has no zero endpoints, so no sample is lost to a zero weight.
+/// Sine (a.k.a. cosine) window: `w[i] = sin(π·i/(m-1))`.
 pub(super) fn cosine(m: usize) -> Vec<f64> {
-    let mf = m as f64;
-    (0..m).map(|i| (PI * (i as f64 + 0.5) / mf).sin()).collect()
+    if m == 1 {
+        return vec![1.0];
+    }
+    let denom = (m - 1) as f64;
+    (0..m).map(|i| (PI * (i as f64) / denom).sin()).collect()
 }
 
 /// Bartlett (triangular with zero endpoints), matching `numpy.bartlett`.
