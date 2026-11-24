@@ -1,0 +1,5 @@
+# Resolve dependencies to versions that support `package.rust-version` (MSRV)
+# when one exists. CI has no lockfile, so without this a new dependency release
+# that raises its MSRV breaks the MSRV job.
+[resolver]
+incompatible-rust-versions = "fallback"
