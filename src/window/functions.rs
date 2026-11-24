@@ -127,17 +127,20 @@ pub(super) fn welch(m: usize) -> Vec<f64> {
 }
 
 /// Tukey (tapered cosine) window, matching `scipy.signal.windows.tukey`.
+///
+/// `alpha` is clamped to `0..=1`. A NaN `alpha` gives a rectangular window.
 pub(super) fn tukey(m: usize, alpha: f64) -> Vec<f64> {
     if m == 1 {
         return vec![1.0];
     }
-    let alpha = alpha.clamp(0.0, 1.0);
-    if alpha == 0.0 {
+    if alpha.is_nan() || alpha <= 0.0 {
         return rectangular(m);
     }
     if alpha >= 1.0 {
         return hann(m);
     }
+
+    let alpha = alpha.clamp(0.0, 1.0);
     let denom = (m - 1) as f64;
     let width = alpha * denom / 2.0;
     (0..m)

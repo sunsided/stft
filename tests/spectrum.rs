@@ -2,7 +2,7 @@
 
 use approx::assert_abs_diff_eq;
 use ruststft::spectrum::{
-    magnitude, magnitude_into, phase, phase_into, power, power_into, power_to_db,
+    amplitude_to_db, magnitude, magnitude_into, phase, phase_into, power, power_into, power_to_db,
 };
 use ruststft::Complex;
 
@@ -59,4 +59,13 @@ fn power_to_db_top_db_floor() {
     power_to_db(&mut values, 1.0, Some(30.0));
 
     assert_slice_eq(&values, &[20.0, 0.0, -10.0]);
+}
+
+/// `amplitude_to_db` floors silence at `-100 dB`, like librosa (`amin = 1e-5`).
+#[test]
+fn amplitude_to_db_silence_floor() {
+    let mut values = [1.0, 0.0];
+    amplitude_to_db(&mut values, 1.0, None);
+
+    assert_slice_eq(&values, &[0.0, -100.0]);
 }

@@ -153,3 +153,10 @@ fn dct2_matches_scipy() {
         assert_abs_diff_eq!(got, want, epsilon = 1e-12);
     }
 }
+
+/// An upper band edge above Nyquist is rejected instead of giving empty filters.
+#[test]
+#[should_panic(expected = "fmax <= sample_rate / 2")]
+fn filterbank_rejects_fmax_above_nyquist() {
+    let _ = MelFilterBank::<f64>::new(4, 16, 8000.0, 0.0, 8000.0, MelScale::Slaney);
+}

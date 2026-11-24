@@ -3,7 +3,7 @@
 use crate::batch::Spectrogram;
 use crate::error::StftError;
 use crate::sample::{cast, Sample};
-use crate::stft::Stft;
+use crate::stft::{is_valid_scale, FrameGeometry, Stft};
 use crate::window::Window;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -69,24 +69,19 @@ impl<T: Sample + FftNum> IstftBuilder<T> {
     /// Validate the configuration and build the [`Istft`].
     ///
     /// # Errors
-    /// Returns [`StftError`] for a missing/empty window, out-of-range hop, or
-    /// an FFT size smaller than the frame length.
+    /// Returns [`StftError`] for a missing/empty window or a non-finite
+    /// coefficient, an out-of-range hop, an FFT size smaller than the frame
+    /// length, or a forward scale that is not finite and positive
+    /// ([`StftError::InvalidScale`]).
     pub fn build(self) -> Result<Istft<T>, StftError> {
         let window = self.window.ok_or(StftError::MissingWindow)?;
-        let frame_len = window.len();
-        if frame_len == 0 {
-            return Err(StftError::InvalidFrameLength);
-        }
-        let hop = self.hop.unwrap_or((frame_len / 4).max(1));
-        if hop == 0 || hop > frame_len {
-            return Err(StftError::InvalidHopSize { hop, frame_len });
-        }
-        let fft_size = self.fft_size.unwrap_or(frame_len);
-        if fft_size < frame_len {
-            return Err(StftError::InvalidFftSize {
-                fft_size,
-                frame_len,
-            });
+        let FrameGeometry {
+            frame_len,
+            hop,
+            fft_size,
+        } = FrameGeometry::validate(&window, self.hop, self.fft_size)?;
+        if !is_valid_scale(self.forward_scale) {
+            return Err(StftError::InvalidScale);
         }
 
         let fft = RealFftPlanner::<T>::new().plan_fft_inverse(fft_size);
@@ -115,6 +110,7 @@ impl<T: Sample + FftNum> IstftBuilder<T> {
             norm: Vec::new(),
             pos: 0,
             frames: 0,
+            front_pad: if self.center { frame_len / 2 } else { 0 },
         })
     }
 }
@@ -139,8 +135,13 @@ pub struct Istft<T: Sample + FftNum> {
     scratch: Vec<Complex<T>>,
     output: Vec<T>,
     norm: Vec<T>,
+    /// Start of the next frame, relative to the first sample still in `output`.
     pos: usize,
+    /// Number of columns processed so far.
     frames: usize,
+    /// Centered padding at the signal start that is not yet trimmed. Becomes
+    /// `0` once [`Istft::drain_ready`] has dropped it.
+    front_pad: usize,
 }
 
 impl<T: Sample + FftNum> Istft<T> {
@@ -219,6 +220,11 @@ impl<T: Sample + FftNum> Istft<T> {
     /// Overlap-add an entire [`Spectrogram`] and return the reconstructed
     /// signal.
     ///
+    /// The output covers only the samples that the frames reach. It can be up
+    /// to `hop - 1` samples shorter than the analyzed signal. Use
+    /// [`reconstruct_with_len`](Istft::reconstruct_with_len) to get an exact
+    /// length.
+    ///
     /// # Errors
     /// Propagates errors from [`process_column`](Istft::process_column).
     pub fn reconstruct(mut self, spectrogram: &Spectrogram<T>) -> Result<Vec<T>, StftError> {
@@ -228,28 +234,78 @@ impl<T: Sample + FftNum> Istft<T> {
         Ok(self.finish())
     }
 
+    /// Like [`reconstruct`](Istft::reconstruct), but return exactly `len`
+    /// samples: zero-pad or truncate the end.
+    ///
+    /// Pass the length of the analyzed signal to get a signal of the same
+    /// length back.
+    ///
+    /// # Errors
+    /// Propagates errors from [`process_column`](Istft::process_column).
+    pub fn reconstruct_with_len(
+        self,
+        spectrogram: &Spectrogram<T>,
+        len: usize,
+    ) -> Result<Vec<T>, StftError> {
+        let mut output = self.reconstruct(spectrogram)?;
+        output.resize(len, T::zero());
+        Ok(output)
+    }
+
+    /// Move all samples that no later column can change into `out`.
+    ///
+    /// Call this between [`process_column`](Istft::process_column) calls to
+    /// stream the signal with bounded memory. The samples are normalized and
+    /// centered padding at the start is dropped, as in
+    /// [`finish`](Istft::finish). [`finish`](Istft::finish) then returns only
+    /// the samples that remain. Returns the number of samples appended.
+    ///
+    /// With centered framing and `hop > frame_len / 2`, some drained samples
+    /// can fall inside the end padding that [`finish`](Istft::finish) would
+    /// trim.
+    pub fn drain_ready(&mut self, out: &mut Vec<T>) -> usize {
+        let ready = self.pos.min(self.output.len());
+        normalize(&mut self.output[..ready], &self.norm[..ready]);
+
+        let skip = self.front_pad.min(ready);
+        self.front_pad -= skip;
+        let before = out.len();
+        out.extend(self.output.drain(..ready).skip(skip));
+        self.norm.drain(..ready);
+        self.pos -= ready;
+
+        out.len() - before
+    }
+
     /// Finish reconstruction: normalize by the accumulated window energy and
     /// return the signal, trimming centered padding if configured.
+    ///
+    /// After [`drain_ready`](Istft::drain_ready) this returns only the samples
+    /// that were not drained.
     #[must_use]
     pub fn finish(self) -> Vec<T> {
         let mut output = self.output;
-        let eps = cast::<T>(1e-12);
-        for (o, n) in output.iter_mut().zip(&self.norm) {
-            if *n > eps {
-                *o = *o / *n;
-            } else {
-                *o = T::zero();
-            }
-        }
+        normalize(&mut output, &self.norm);
 
         if self.center {
-            let pad = self.frame_len / 2;
-            if output.len() >= 2 * pad {
-                output.truncate(output.len() - pad);
-                output.drain(..pad);
-            }
+            let end_pad = self.frame_len / 2;
+            let front = self.front_pad.min(output.len());
+            output.drain(..front);
+            output.truncate(output.len().saturating_sub(end_pad));
         }
+
         output
+    }
+}
+
+/// Divide each overlap-added sample by its accumulated squared window weight.
+///
+/// Samples with a weight at or below `1e-12` get no window coverage and are set
+/// to zero.
+fn normalize<T: Sample>(output: &mut [T], norm: &[T]) {
+    let eps = cast::<T>(1e-12);
+    for (o, &n) in output.iter_mut().zip(norm) {
+        *o = if n > eps { *o / n } else { T::zero() };
     }
 }
 

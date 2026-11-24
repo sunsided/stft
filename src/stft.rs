@@ -10,6 +10,93 @@ use alloc::vec::Vec;
 use num_complex::Complex;
 use realfft::{FftNum, RealFftPlanner, RealToComplex};
 
+/// Frame layout shared by the forward and inverse transforms.
+pub(crate) struct FrameGeometry {
+    /// Window length in samples. Never zero.
+    pub(crate) frame_len: usize,
+    /// Samples advanced between frames. In `1..=frame_len`.
+    pub(crate) hop: usize,
+    /// FFT length in samples. At least `frame_len`.
+    pub(crate) fft_size: usize,
+}
+
+impl FrameGeometry {
+    /// Check a window and the optional hop and FFT sizes, and fill in defaults.
+    ///
+    /// The hop defaults to `frame_len / 4` (at least `1`). The FFT size
+    /// defaults to `frame_len`.
+    ///
+    /// # Errors
+    /// Returns [`StftError::InvalidFrameLength`] for an empty window,
+    /// [`StftError::InvalidWindow`] for a non-finite coefficient,
+    /// [`StftError::InvalidHopSize`] for a hop outside `1..=frame_len`, and
+    /// [`StftError::InvalidFftSize`] for an FFT size below `frame_len`.
+    pub(crate) fn validate<T: Sample>(
+        window: &Window<T>,
+        hop: Option<usize>,
+        fft_size: Option<usize>,
+    ) -> Result<Self, StftError> {
+        let frame_len = window.len();
+        if frame_len == 0 {
+            return Err(StftError::InvalidFrameLength);
+        }
+
+        if !window.coefficients().iter().all(|c| c.is_finite()) {
+            return Err(StftError::InvalidWindow);
+        }
+
+        let hop = hop.unwrap_or((frame_len / 4).max(1));
+        if hop == 0 || hop > frame_len {
+            return Err(StftError::InvalidHopSize { hop, frame_len });
+        }
+
+        let fft_size = fft_size.unwrap_or(frame_len);
+        if fft_size < frame_len {
+            return Err(StftError::InvalidFftSize {
+                fft_size,
+                frame_len,
+            });
+        }
+
+        Ok(Self {
+            frame_len,
+            hop,
+            fft_size,
+        })
+    }
+}
+
+/// Whether `scale` is usable as a coefficient scale factor: finite and positive.
+pub(crate) fn is_valid_scale<T: Sample>(scale: T) -> bool {
+    scale.is_finite() && scale > T::zero()
+}
+
+/// Window `samples` into the front of `input` and zero the rest.
+///
+/// `input` is the FFT input buffer (length `fft_size`). `window` has length
+/// `frame_len`, and `samples` yields at least `frame_len` values.
+pub(crate) fn fill_frame<T: Sample>(
+    input: &mut [T],
+    window: &[T],
+    samples: impl IntoIterator<Item = T>,
+) {
+    let (head, tail) = input.split_at_mut(window.len());
+    for ((dst, &w), s) in head.iter_mut().zip(window).zip(samples) {
+        *dst = s * w;
+    }
+
+    tail.fill(T::zero());
+}
+
+/// Multiply every bin by `scale`, skipping the work when `scale` is `1`.
+pub(crate) fn apply_scale<T: Sample>(bins: &mut [Complex<T>], scale: T) {
+    if scale != T::one() {
+        for bin in bins {
+            *bin = *bin * scale;
+        }
+    }
+}
+
 /// Builder for [`Stft`].
 ///
 /// A window is mandatory; everything else has a sensible default
@@ -88,28 +175,19 @@ impl<T: Sample + FftNum> StftBuilder<T> {
     /// Validate the configuration and build the [`Stft`].
     ///
     /// # Errors
-    /// Returns [`StftError`] if the window is missing/empty, the hop size is
-    /// out of range, the FFT size is smaller than the frame length, or density
-    /// scaling is requested without a sample rate.
+    /// Returns [`StftError`] if the window is missing/empty or contains a
+    /// non-finite coefficient, the hop size is out of range, the FFT size is
+    /// smaller than the frame length, density scaling is requested without a
+    /// sample rate, or the resulting scale factor is not finite and positive
+    /// ([`StftError::InvalidScale`], e.g. a zero-sum window with
+    /// [`Scaling::Magnitude`] or a sample rate of `0`).
     pub fn build(self) -> Result<Stft<T>, StftError> {
         let window = self.window.ok_or(StftError::MissingWindow)?;
-        let frame_len = window.len();
-        if frame_len == 0 {
-            return Err(StftError::InvalidFrameLength);
-        }
-
-        let hop = self.hop.unwrap_or((frame_len / 4).max(1));
-        if hop == 0 || hop > frame_len {
-            return Err(StftError::InvalidHopSize { hop, frame_len });
-        }
-
-        let fft_size = self.fft_size.unwrap_or(frame_len);
-        if fft_size < frame_len {
-            return Err(StftError::InvalidFftSize {
-                fft_size,
-                frame_len,
-            });
-        }
+        let FrameGeometry {
+            frame_len,
+            hop,
+            fft_size,
+        } = FrameGeometry::validate(&window, self.hop, self.fft_size)?;
 
         let scale = match self.scaling {
             Scaling::None => T::one(),
@@ -119,6 +197,9 @@ impl<T: Sample + FftNum> StftBuilder<T> {
                 T::one() / (cast::<T>(fs) * window.sum_squared()).sqrt()
             }
         };
+        if !is_valid_scale(scale) {
+            return Err(StftError::InvalidScale);
+        }
 
         let fft = RealFftPlanner::<T>::new().plan_fft_forward(fft_size);
         let input = fft.make_input_vec();
@@ -285,15 +366,11 @@ impl<T: Sample + FftNum> Stft<T> {
     /// Fill `self.input` from the front `frame_len` samples of the ring,
     /// applying the window and zero-padding, then run the FFT and scaling.
     fn compute_from_ring(&mut self) -> Result<(), StftError> {
-        let frame_len = self.frame_len;
-        let win = self.window.coefficients();
-        let (head, tail) = self.input.split_at_mut(frame_len);
-        for ((dst, &w), &s) in head.iter_mut().zip(win).zip(self.ring.iter()) {
-            *dst = s * w;
-        }
-        for dst in tail {
-            *dst = T::zero();
-        }
+        fill_frame(
+            &mut self.input,
+            self.window.coefficients(),
+            self.ring.iter().copied(),
+        );
         self.run_fft()
     }
 
@@ -303,12 +380,7 @@ impl<T: Sample + FftNum> Stft<T> {
         self.fft
             .process_with_scratch(&mut self.input, &mut self.spectrum, &mut self.scratch)
             .map_err(|_| StftError::Fft)?;
-        if self.scale != T::one() {
-            let scale = self.scale;
-            for bin in &mut self.spectrum {
-                *bin = *bin * scale;
-            }
-        }
+        apply_scale(&mut self.spectrum, self.scale);
         Ok(())
     }
 
@@ -317,15 +389,11 @@ impl<T: Sample + FftNum> Stft<T> {
     #[cfg(not(feature = "rayon"))]
     pub(crate) fn compute_frame(&mut self, frame: &[T]) -> Result<&[Complex<T>], StftError> {
         debug_assert_eq!(frame.len(), self.frame_len);
-        let frame_len = self.frame_len;
-        let win = self.window.coefficients();
-        let (head, tail) = self.input.split_at_mut(frame_len);
-        for ((dst, &w), &s) in head.iter_mut().zip(win).zip(frame) {
-            *dst = s * w;
-        }
-        for dst in tail {
-            *dst = T::zero();
-        }
+        fill_frame(
+            &mut self.input,
+            self.window.coefficients(),
+            frame.iter().copied(),
+        );
         self.run_fft()?;
         Ok(&self.spectrum)
     }

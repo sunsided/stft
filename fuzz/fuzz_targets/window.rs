@@ -1,6 +1,7 @@
 #![no_main]
 //! Generating any window family at any (bounded) length and parameters must
-//! never panic or hang.
+//! never panic or hang, and parameters inside their documented range must give
+//! finite coefficients.
 
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
@@ -39,5 +40,17 @@ fuzz_target!(|input: Input| {
         12 => WindowFunction::Kaiser { beta: input.beta },
         _ => WindowFunction::Gaussian { std: input.std },
     };
-    let _ = Window::<f64>::new(func, len, symmetry);
+    let window = Window::<f64>::new(func, len, symmetry);
+
+    let in_range = match func {
+        WindowFunction::Kaiser { beta } => beta.is_finite() && beta.abs() <= 700.0,
+        WindowFunction::Gaussian { std } => std.is_finite() && std > 0.0,
+        _ => true,
+    };
+    if in_range {
+        assert!(
+            window.coefficients().iter().all(|c| c.is_finite()),
+            "{func:?} at length {len} gave a non-finite coefficient"
+        );
+    }
 });

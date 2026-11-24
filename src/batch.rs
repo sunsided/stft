@@ -3,6 +3,8 @@
 use crate::config::PadMode;
 use crate::sample::Sample;
 use crate::stft::Stft;
+#[cfg(feature = "rayon")]
+use crate::stft::{apply_scale, fill_frame};
 use alloc::vec;
 use alloc::vec::Vec;
 use num_complex::Complex;
@@ -24,9 +26,10 @@ impl<T: Sample> Spectrogram<T> {
     /// Build a spectrogram from a frame-major flat buffer.
     ///
     /// # Panics
-    /// Panics if `data.len() != n_frames * n_freqs`.
+    /// Panics if `n_freqs` is zero, or if `data.len() != n_frames * n_freqs`.
     #[must_use]
     pub fn from_flat(data: Vec<Complex<T>>, n_frames: usize, n_freqs: usize) -> Self {
+        assert!(n_freqs > 0, "spectrogram needs at least one frequency bin");
         assert_eq!(data.len(), n_frames * n_freqs, "spectrogram shape mismatch");
         Self {
             data,
@@ -170,26 +173,14 @@ impl<T: Sample + FftNum> Stft<T> {
             let fft = self.fft_handle();
             let win = self.window().coefficients();
             let scale = self.scale();
-            let one = T::one();
             data.par_chunks_mut(n_freqs).enumerate().for_each_init(
                 || (fft.make_input_vec(), fft.make_scratch_vec()),
                 |(input, scratch), (frame_idx, out_col)| {
                     let start = frame_idx * hop;
-                    let frame = &padded[start..start + frame_len];
-                    let (head, tail) = input.split_at_mut(frame_len);
-                    for ((dst, &w), &s) in head.iter_mut().zip(win).zip(frame) {
-                        *dst = s * w;
-                    }
-                    for dst in tail {
-                        *dst = T::zero();
-                    }
+                    fill_frame(input, win, padded[start..start + frame_len].iter().copied());
                     fft.process_with_scratch(input, out_col, scratch)
                         .expect("realfft forward");
-                    if scale != one {
-                        for bin in out_col.iter_mut() {
-                            *bin = *bin * scale;
-                        }
-                    }
+                    apply_scale(out_col, scale);
                 },
             );
         }
