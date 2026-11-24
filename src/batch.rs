@@ -127,20 +127,26 @@ fn pad_signal<T: Sample>(signal: &[T], pad: usize, mode: PadMode) -> Vec<T> {
     out
 }
 
-impl<T: Sample + FftNum> Stft<T> {
-    /// Number of full frames produced for a signal of `signal_len` samples,
-    /// accounting for centered padding.
-    fn frame_count(&self, signal_len: usize) -> (usize, usize) {
-        let pad = if self.center { self.frame_len() / 2 } else { 0 };
-        let padded_len = signal_len + 2 * pad;
-        let n_frames = if padded_len >= self.frame_len() {
-            1 + (padded_len - self.frame_len()) / self.hop()
-        } else {
-            0
-        };
-        (pad, n_frames)
-    }
+/// Return `(pad, n_frames)` for a signal of `signal_len` samples.
+///
+/// `pad` is the padding on each side (`frame_len / 2` if `center` is set, else
+/// `0`). `n_frames` is the number of full frames in the padded signal. The
+/// caller must make sure that `hop > 0`. The sum `signal_len + 2 * pad` does not
+/// overflow because both terms are lengths of in-memory buffers (at most
+/// `isize::MAX` each).
+fn frame_count(signal_len: usize, frame_len: usize, hop: usize, center: bool) -> (usize, usize) {
+    let pad = if center { frame_len / 2 } else { 0 };
+    let padded_len = signal_len + 2 * pad;
+    let n_frames = if padded_len >= frame_len {
+        1 + (padded_len - frame_len) / hop
+    } else {
+        0
+    };
 
+    (pad, n_frames)
+}
+
+impl<T: Sample + FftNum> Stft<T> {
     /// Compute the full spectrogram of `signal` in one call.
     ///
     /// Resets the internal streaming buffer. With
@@ -150,7 +156,7 @@ impl<T: Sample + FftNum> Stft<T> {
     #[must_use]
     pub fn spectrogram(&mut self, signal: &[T]) -> Spectrogram<T> {
         self.reset();
-        let (pad, n_frames) = self.frame_count(signal.len());
+        let (pad, n_frames) = frame_count(signal.len(), self.frame_len(), self.hop(), self.center);
         let n_freqs = self.n_freqs();
         let frame_len = self.frame_len();
         let hop = self.hop();
@@ -200,5 +206,95 @@ impl<T: Sample + FftNum> Stft<T> {
         }
 
         Spectrogram::from_flat(data, n_frames, n_freqs)
+    }
+}
+
+/// Kani proofs for the index arithmetic of batch framing and padding.
+///
+/// The proofs cover integer logic only. The FFT and the float math are out of
+/// scope; property tests cover them.
+#[cfg(kani)]
+mod verification {
+    use super::{frame_count, pad_signal, reflect_index, PadMode};
+
+    /// `reflect_index` stays in `0..len` for every position `p`, and is the
+    /// identity inside the signal.
+    ///
+    /// `len` is at most `isize::MAX / 2`, so `2 * (len - 1)` does not overflow.
+    /// Slices of `f32` or `f64` are always shorter than that.
+    #[kani::proof]
+    fn reflect_index_in_bounds() {
+        let len: isize = kani::any();
+        let p: isize = kani::any();
+        kani::assume(len >= 1 && len <= isize::MAX / 2);
+
+        let m = reflect_index(p, len);
+
+        assert!(m < len.unsigned_abs());
+        if p >= 0 && p < len {
+            assert_eq!(m, p.unsigned_abs());
+        }
+    }
+
+    /// The frame count never overflows or divides by zero, over the full range
+    /// of valid lengths.
+    #[kani::proof]
+    fn frame_count_no_overflow() {
+        let signal_len: usize = kani::any();
+        let frame_len: usize = kani::any();
+        let hop: usize = kani::any();
+        kani::assume(signal_len <= isize::MAX.unsigned_abs());
+        kani::assume(frame_len >= 1 && frame_len <= isize::MAX.unsigned_abs());
+        kani::assume(hop >= 1 && hop <= frame_len);
+
+        let _ = frame_count(signal_len, frame_len, hop, kani::any());
+    }
+
+    /// Every frame fits in the padded signal and one more frame would not.
+    ///
+    /// The lengths are bounded to `2^10` to keep the nonlinear arithmetic
+    /// tractable for the solver.
+    #[kani::proof]
+    fn frame_count_frames_fit() {
+        let signal_len: usize = kani::any();
+        let frame_len: usize = kani::any();
+        let hop: usize = kani::any();
+        let center: bool = kani::any();
+        kani::assume(signal_len <= 1 << 10);
+        kani::assume(frame_len >= 1 && frame_len <= 1 << 10);
+        kani::assume(hop >= 1 && hop <= frame_len);
+
+        let (pad, n_frames) = frame_count(signal_len, frame_len, hop, center);
+        let padded_len = signal_len + 2 * pad;
+
+        if n_frames > 0 {
+            assert!((n_frames - 1) * hop + frame_len <= padded_len);
+            assert!(n_frames * hop + frame_len > padded_len);
+        } else {
+            assert!(padded_len < frame_len);
+        }
+    }
+
+    /// `pad_signal` never indexes out of bounds, keeps the signal in the
+    /// middle, and returns `len + 2 * pad` samples for every mode.
+    #[kani::proof]
+    #[kani::unwind(10)]
+    fn pad_signal_shape() {
+        let len: usize = kani::any();
+        let pad: usize = kani::any();
+        kani::assume(len <= 3 && pad <= 3);
+        let mode = match kani::any::<u8>() % 3 {
+            0 => PadMode::Zero,
+            1 => PadMode::Edge,
+            _ => PadMode::Reflect,
+        };
+        let signal: [f32; 3] = [1.0, 2.0, 3.0];
+
+        let out = pad_signal(&signal[..len], pad, mode);
+
+        assert_eq!(out.len(), len + 2 * pad);
+        for i in 0..len {
+            assert_eq!(out[pad + i], signal[i]);
+        }
     }
 }
