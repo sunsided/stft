@@ -42,12 +42,12 @@ pub enum StftError {
     },
     /// The window contains a NaN or infinite coefficient.
     InvalidWindow,
-    /// The coefficient scale factor is not a finite, positive number.
+    /// The coefficient scale factor is not finite, or is zero.
     ///
     /// This occurs when the window sums to zero with [`Scaling::Magnitude`](crate::Scaling),
-    /// when the sample rate is not finite and positive with
+    /// when the sample rate gives a non-finite scale with
     /// [`Scaling::Density`](crate::Scaling), or when an inverse transform gets a
-    /// forward scale that is not finite and positive.
+    /// forward scale that is not finite or is zero.
     InvalidScale,
     /// The underlying FFT backend reported an error.
     Fft,
@@ -81,7 +81,7 @@ impl fmt::Display for StftError {
             ),
             Self::InvalidWindow => f.write_str("the window contains a NaN or infinite coefficient"),
             Self::InvalidScale => {
-                f.write_str("the coefficient scale factor is not finite and positive")
+                f.write_str("the coefficient scale factor is not finite or is zero")
             }
             Self::Fft => f.write_str("the FFT backend reported an error"),
         }

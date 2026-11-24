@@ -28,7 +28,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - `Stft` and `Istft` builders reject windows with NaN or infinite
-  coefficients, and scale factors that are not finite and positive (zero-sum
+  coefficients, and scale factors that are not finite or are zero (zero-sum
   window with `Scaling::Magnitude`, a sample rate of `0` with
   `Scaling::Density`, a forward scale of `0`). These used to produce NaN
   spectrograms silently.

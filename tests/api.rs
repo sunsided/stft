@@ -226,7 +226,7 @@ fn istft_center_trim_edges() {
     assert!(istft.finish().is_empty());
 }
 
-/// A scale factor that is not finite and positive is an error, not NaN output.
+/// A scale factor that is not finite or is zero is an error, not NaN output.
 #[test]
 fn builders_reject_invalid_scale() {
     // A symmetric Hann window of length 2 is `[0, 0]` and sums to zero.
@@ -247,7 +247,7 @@ fn builders_reject_invalid_scale() {
         assert_eq!(density.err(), Some(StftError::InvalidScale), "fs = {fs}");
     }
 
-    for scale in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+    for scale in [0.0, f64::NAN, f64::INFINITY] {
         let inverse = Istft::builder()
             .window(Window::<f64>::hann(8))
             .forward_scale(scale)
@@ -310,32 +310,61 @@ fn reconstruct_with_len_matches_input_length() {
     assert_eq!(&exact[..short.len()], &short[..]);
 }
 
-/// Draining after every column gives the same signal as one `finish`, and the
-/// internal buffer stays bounded by one frame.
+/// A window with a negative sum gives a negative magnitude scale. That scale is
+/// valid, and the inverse transform still reconstructs the signal.
+#[test]
+fn negative_sum_window_round_trips() {
+    let window = Window::<f64>::from_coefficients(vec![-1.0; 8]);
+    let signal = test_signal(64);
+    let mut stft = Stft::builder()
+        .window(window)
+        .hop_size(4)
+        .scaling(Scaling::Magnitude)
+        .build()
+        .unwrap();
+    assert!(stft.scale() < 0.0);
+
+    let spec = stft.spectrogram(&signal);
+    let recon = stft.inverse().unwrap().reconstruct(&spec).unwrap();
+    for (a, b) in recon.iter().zip(&signal) {
+        assert!((a - b).abs() < 1e-12);
+    }
+}
+
+/// Draining after every column (twice, to check that a repeated drain adds
+/// nothing) gives the same signal as one `finish`, for every hop up to the
+/// frame length and with and without centered framing.
 #[test]
 fn drain_ready_matches_finish() {
+    let signal = test_signal(500);
     for center in [false, true] {
-        let signal = test_signal(500);
-        let mut stft = Stft::builder()
-            .window(Window::<f64>::hann(32))
-            .hop_size(8)
-            .center(center)
-            .build()
-            .unwrap();
-        let spec = stft.spectrogram(&signal);
-        let whole = stft.inverse().unwrap().reconstruct(&spec).unwrap();
+        for hop in [8, 16, 24, 32] {
+            let mut stft = Stft::builder()
+                .window(Window::<f64>::hann(32))
+                .hop_size(hop)
+                .center(center)
+                .build()
+                .unwrap();
+            let spec = stft.spectrogram(&signal);
+            let whole = stft.inverse().unwrap().reconstruct(&spec).unwrap();
 
-        let mut istft = stft.inverse().unwrap();
-        let mut streamed = Vec::new();
-        for column in spec.columns() {
-            istft.process_column(column).unwrap();
-            istft.drain_ready(&mut streamed);
-        }
-        streamed.extend(istft.finish());
+            let mut istft = stft.inverse().unwrap();
+            let mut streamed = Vec::new();
+            for column in spec.columns() {
+                istft.process_column(column).unwrap();
+                istft.drain_ready(&mut streamed);
+                assert_eq!(istft.drain_ready(&mut streamed), 0);
+            }
+            streamed.extend(istft.finish());
 
-        assert_eq!(streamed.len(), whole.len(), "center = {center}");
-        for (a, b) in streamed.iter().zip(&whole) {
-            assert!((a - b).abs() < 1e-12, "center = {center}");
+            assert_eq!(
+                streamed.len(),
+                whole.len(),
+                "center = {center}, hop = {hop}"
+            );
+            for (a, b) in streamed.iter().zip(&whole) {
+                assert!((a - b).abs() < 1e-12, "center = {center}, hop = {hop}");
+            }
         }
     }
 }

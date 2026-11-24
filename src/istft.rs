@@ -71,7 +71,7 @@ impl<T: Sample + FftNum> IstftBuilder<T> {
     /// # Errors
     /// Returns [`StftError`] for a missing/empty window or a non-finite
     /// coefficient, an out-of-range hop, an FFT size smaller than the frame
-    /// length, or a forward scale that is not finite and positive
+    /// length, or a forward scale that is not finite or is zero
     /// ([`StftError::InvalidScale`]).
     pub fn build(self) -> Result<Istft<T>, StftError> {
         let window = self.window.ok_or(StftError::MissingWindow)?;
@@ -260,11 +260,11 @@ impl<T: Sample + FftNum> Istft<T> {
     /// [`finish`](Istft::finish). [`finish`](Istft::finish) then returns only
     /// the samples that remain. Returns the number of samples appended.
     ///
-    /// With centered framing and `hop > frame_len / 2`, some drained samples
-    /// can fall inside the end padding that [`finish`](Istft::finish) would
-    /// trim.
+    /// With centered framing, the last `frame_len / 2` samples stay buffered,
+    /// because they can be end padding that [`finish`](Istft::finish) trims.
     pub fn drain_ready(&mut self, out: &mut Vec<T>) -> usize {
-        let ready = self.pos.min(self.output.len());
+        let end_pad = if self.center { self.frame_len / 2 } else { 0 };
+        let ready = self.pos.min(self.output.len().saturating_sub(end_pad));
         normalize(&mut self.output[..ready], &self.norm[..ready]);
 
         let skip = self.front_pad.min(ready);

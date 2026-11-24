@@ -66,9 +66,12 @@ impl FrameGeometry {
     }
 }
 
-/// Whether `scale` is usable as a coefficient scale factor: finite and positive.
+/// Whether `scale` is usable as a coefficient scale factor: finite and not zero.
+///
+/// A negative scale is valid. A window with a negative sum gives one, and the
+/// inverse transform divides the sign out again.
 pub(crate) fn is_valid_scale<T: Sample>(scale: T) -> bool {
-    scale.is_finite() && scale > T::zero()
+    scale.is_finite() && !scale.is_zero()
 }
 
 /// Window `samples` into the front of `input` and zero the rest.
@@ -178,7 +181,7 @@ impl<T: Sample + FftNum> StftBuilder<T> {
     /// Returns [`StftError`] if the window is missing/empty or contains a
     /// non-finite coefficient, the hop size is out of range, the FFT size is
     /// smaller than the frame length, density scaling is requested without a
-    /// sample rate, or the resulting scale factor is not finite and positive
+    /// sample rate, or the resulting scale factor is not finite or is zero
     /// ([`StftError::InvalidScale`], e.g. a zero-sum window with
     /// [`Scaling::Magnitude`] or a sample rate of `0`).
     pub fn build(self) -> Result<Stft<T>, StftError> {
