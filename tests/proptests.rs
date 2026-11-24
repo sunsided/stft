@@ -82,6 +82,21 @@ fn any_window_function() -> impl Strategy<Value = WindowFunction> {
     ]
 }
 
+/// Any window family that overlap-add can invert with a hop of at most half
+/// the frame.
+///
+/// A narrow Gaussian is close to zero a quarter frame from its center, so two
+/// overlapping frames cannot recover the samples there. The standard deviation
+/// is therefore at least `frame / 4`.
+fn invertible_window(frame: usize) -> impl Strategy<Value = WindowFunction> {
+    any_window_function().prop_map(move |function| match function {
+        WindowFunction::Gaussian { std } => WindowFunction::Gaussian {
+            std: std.max(frame as f64 / 4.0),
+        },
+        other => other,
+    })
+}
+
 /// Any padding mode.
 fn any_pad_mode() -> impl Strategy<Value = PadMode> {
     prop_oneof![
@@ -217,25 +232,32 @@ proptest! {
         assert_spec_close(&manual_cols, &centered, 1e-12)?;
     }
 
-    /// STFT followed by ISTFT reconstructs the interior for any hop up to half
-    /// the frame, any FFT zero padding and any scaling mode.
+    /// STFT followed by ISTFT reconstructs the signal for any window family,
+    /// any hop up to half the frame, any FFT zero padding, scaling and padding
+    /// mode.
+    ///
+    /// Centered framing gives perfect reconstruction of every output sample.
+    /// Uncentered framing is checked in the interior only, because the first
+    /// and last samples sit under the window edges, which can be zero.
     #[test]
     fn round_trip_any_config(
-        frame in 4usize..48,
+        (frame, function) in (4usize..48).prop_flat_map(|frame| (Just(frame), invertible_window(frame))),
         hop_frac in 0.0f64..1.0,
         extra_fft in 0usize..9,
         scaling in prop_oneof![Just(Scaling::None), Just(Scaling::Magnitude), Just(Scaling::Density)],
         center in any::<bool>(),
+        mode in any_pad_mode(),
         signal in prop::collection::vec(-1.0f64..1.0, 100..200),
     ) {
         let hop = 1 + (hop_frac * (frame / 2 - 1) as f64) as usize;
         let mut stft = Stft::builder()
-            .window(Window::<f64>::hann(frame))
+            .window(Window::<f64>::new(function, frame, Symmetry::Periodic))
             .hop_size(hop)
             .fft_size(frame + extra_fft)
             .scaling(scaling)
             .sample_rate(8000.0)
             .center(center)
+            .pad_mode(mode)
             .build()
             .unwrap();
         let spec = stft.spectrogram(&signal);
@@ -249,7 +271,8 @@ proptest! {
         let span = (spec.n_frames() - 1) * hop + frame;
         let covered = if center { span - 2 * (frame / 2) } else { span };
         prop_assert_eq!(recon.len(), covered);
-        for i in frame..covered.saturating_sub(frame) {
+        let checked = if center { 0..covered } else { frame..covered.saturating_sub(frame) };
+        for i in checked {
             prop_assert!((recon[i] - signal[i]).abs() < 1e-9, "sample {i}: {} vs {}", recon[i], signal[i]);
         }
     }
