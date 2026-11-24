@@ -1,0 +1,6 @@
+# cargo-mutants configuration: https://mutants.rs/
+# Kani proof harnesses only build under `cargo kani`; mutating them is noise.
+exclude_re = ["verification::"]
+# Include the `mel` module; leave `rayon` off so the serial batch path is mutated.
+features = ["mel"]
+test_tool = "nextest"
