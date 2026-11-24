@@ -159,3 +159,26 @@ fn cached_sums_match_coefficients() {
         assert!(!window.is_empty());
     }
 }
+
+/// A NaN Tukey `alpha` gives a rectangular window, not NaN coefficients.
+#[test]
+fn tukey_nan_alpha_is_rectangular() {
+    let window = Window::<f64>::new(
+        WindowFunction::Tukey { alpha: f64::NAN },
+        7,
+        Symmetry::Symmetric,
+    );
+    assert_eq!(window.coefficients(), &[1.0; 7]);
+}
+
+/// Kaiser coefficients stay finite up to the documented `|beta| <= 700` bound.
+#[test]
+fn kaiser_large_beta_is_finite() {
+    for beta in [-700.0, 700.0] {
+        let window = Window::<f64>::kaiser(64, beta);
+        assert!(
+            window.coefficients().iter().all(|c| c.is_finite()),
+            "beta = {beta}"
+        );
+    }
+}

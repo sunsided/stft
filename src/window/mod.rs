@@ -31,6 +31,10 @@ pub enum Symmetry {
 }
 
 /// A parametric window family that can be evaluated into a [`Window`].
+///
+/// Parameters outside their documented range can give NaN coefficients. The
+/// [`Stft`](crate::Stft) and [`Istft`](crate::Istft) builders reject such
+/// windows with [`StftError::InvalidWindow`](crate::StftError::InvalidWindow).
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[non_exhaustive]
@@ -60,18 +64,21 @@ pub enum WindowFunction {
     /// Tukey (tapered cosine) window; `alpha` is the taper fraction in `0..=1`.
     Tukey {
         /// Fraction of the window inside the cosine tapers (`0` = rectangular,
-        /// `1` = Hann).
+        /// `1` = Hann). Values outside `0..=1` are clamped; NaN gives a
+        /// rectangular window.
         alpha: f64,
     },
     /// Kaiser window with shape parameter `beta`.
     Kaiser {
         /// Shape parameter; larger values trade main-lobe width for side-lobe
-        /// attenuation.
+        /// attenuation. Must be finite with `|beta| <= 700`; larger values
+        /// overflow and give NaN coefficients.
         beta: f64,
     },
     /// Gaussian window with standard deviation `std` (in samples).
     Gaussian {
-        /// Standard deviation in samples.
+        /// Standard deviation in samples. Must be finite and greater than
+        /// zero; other values give NaN coefficients.
         std: f64,
     },
 }

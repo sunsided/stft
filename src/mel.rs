@@ -70,8 +70,14 @@ pub fn mel_to_hz(mel: f64, scale: MelScale) -> f64 {
 /// mel bands.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MelFilterBank<T> {
+    /// Dense filter weights, row-major `[n_mels, n_freqs]`.
     weights: Vec<T>,
+    /// Per filter, the half-open range of linear bins with a non-zero weight.
+    /// The range is empty for a filter that covers no bin.
+    bins: Vec<core::ops::Range<usize>>,
+    /// Number of mel bands.
     n_mels: usize,
+    /// Number of linear frequency bins: `n_fft / 2 + 1`.
     n_freqs: usize,
 }
 
@@ -80,6 +86,10 @@ impl<T: Sample> MelFilterBank<T> {
     ///
     /// - `n_fft` is the FFT size (the bank has `n_fft / 2 + 1` linear bins).
     /// - `fmin`/`fmax` bound the mel band edges in Hz.
+    ///
+    /// # Panics
+    /// Panics if `n_fft` is zero, if `sample_rate` is not finite and positive,
+    /// or if `0 <= fmin < fmax <= sample_rate / 2` is false.
     #[must_use]
     pub fn new(
         n_mels: usize,
@@ -89,6 +99,16 @@ impl<T: Sample> MelFilterBank<T> {
         fmax: f64,
         scale: MelScale,
     ) -> Self {
+        assert!(n_fft > 0, "mel filterbank needs n_fft > 0");
+        assert!(
+            sample_rate.is_finite() && sample_rate > 0.0,
+            "mel filterbank needs a finite, positive sample rate"
+        );
+        assert!(
+            fmin >= 0.0 && fmin < fmax && fmax <= sample_rate / 2.0,
+            "mel filterbank needs 0 <= fmin < fmax <= sample_rate / 2"
+        );
+
         let n_freqs = n_fft / 2 + 1;
         let mut weights = vec![T::zero(); n_mels * n_freqs];
 
@@ -131,8 +151,13 @@ impl<T: Sample> MelFilterBank<T> {
             }
         }
 
+        let bins = (0..n_mels)
+            .map(|m| nonzero_range(&weights[m * n_freqs..(m + 1) * n_freqs]))
+            .collect();
+
         Self {
             weights,
+            bins,
             n_mels,
             n_freqs,
         }
@@ -163,10 +188,10 @@ impl<T: Sample> MelFilterBank<T> {
     pub fn transform_into(&self, power: &[T], out: &mut [T]) {
         assert_eq!(power.len(), self.n_freqs, "mel input length mismatch");
         assert_eq!(out.len(), self.n_mels, "mel output length mismatch");
-        for (m, slot) in out.iter_mut().enumerate() {
+        for ((m, slot), bins) in out.iter_mut().enumerate().zip(&self.bins) {
             let row = &self.weights[m * self.n_freqs..(m + 1) * self.n_freqs];
             let mut acc = T::zero();
-            for (&w, &p) in row.iter().zip(power) {
+            for (&w, &p) in row[bins.clone()].iter().zip(&power[bins.clone()]) {
                 acc = acc + w * p;
             }
             *slot = acc;
@@ -180,6 +205,21 @@ impl<T: Sample> MelFilterBank<T> {
         self.transform_into(power, &mut out);
         out
     }
+}
+
+/// The smallest half-open index range that holds every non-zero value of `row`.
+///
+/// Returns an empty range when all values are zero.
+fn nonzero_range<T: Sample>(row: &[T]) -> core::ops::Range<usize> {
+    let Some(start) = row.iter().position(|w| !w.is_zero()) else {
+        return 0..0;
+    };
+    let end = row
+        .iter()
+        .rposition(|w| !w.is_zero())
+        .map_or(start, |i| i + 1);
+
+    start..end
 }
 
 /// An orthonormal type-II DCT, precomputed as a basis matrix.

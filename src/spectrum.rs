@@ -59,17 +59,21 @@ pub fn phase<T: Sample>(spectrum: &[Complex<T>]) -> Vec<T> {
     spectrum.iter().map(|z| z.arg()).collect()
 }
 
-/// Smallest value clamped to before taking a logarithm, avoiding `-inf`.
-fn amin<T: Sample>() -> T {
-    cast(1e-10)
-}
+/// Smallest power clamped to before taking a logarithm, avoiding `-inf`.
+/// Matches librosa's `power_to_db` default (`-100 dB` re `1`).
+const POWER_AMIN: f64 = 1e-10;
+
+/// Smallest amplitude clamped to before taking a logarithm, avoiding `-inf`.
+/// Matches librosa's `amplitude_to_db` default (`-100 dB` re `1`).
+const AMPLITUDE_AMIN: f64 = 1e-5;
 
 /// Convert amplitudes to decibels in place: `20·log₁₀(max(|a|, amin) / reference)`.
 ///
-/// If `top_db` is `Some(d)`, values are floored at `max - d`, matching
-/// librosa's `amplitude_to_db`.
+/// `amin` is `1e-5`, so silence maps to `-100 dB` relative to `1`, matching
+/// librosa's `amplitude_to_db`. If `top_db` is `Some(d)`, values are floored at
+/// `max - d`.
 pub fn amplitude_to_db<T: Sample>(amplitudes: &mut [T], reference: T, top_db: Option<T>) {
-    let amin = amin::<T>();
+    let amin = cast::<T>(AMPLITUDE_AMIN);
     let twenty = cast::<T>(20.0);
     let log_ref = reference.abs().max(amin).log10();
     convert_to_db(amplitudes, twenty, log_ref, amin, top_db);
@@ -77,10 +81,11 @@ pub fn amplitude_to_db<T: Sample>(amplitudes: &mut [T], reference: T, top_db: Op
 
 /// Convert powers to decibels in place: `10·log₁₀(max(p, amin) / reference)`.
 ///
-/// If `top_db` is `Some(d)`, values are floored at `max - d`, matching
-/// librosa's `power_to_db`.
+/// `amin` is `1e-10`, so silence maps to `-100 dB` relative to `1`, matching
+/// librosa's `power_to_db`. If `top_db` is `Some(d)`, values are floored at
+/// `max - d`.
 pub fn power_to_db<T: Sample>(powers: &mut [T], reference: T, top_db: Option<T>) {
-    let amin = amin::<T>();
+    let amin = cast::<T>(POWER_AMIN);
     let ten = cast::<T>(10.0);
     let log_ref = reference.abs().max(amin).log10();
     convert_to_db(powers, ten, log_ref, amin, top_db);

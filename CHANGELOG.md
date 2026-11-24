@@ -6,6 +6,34 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `Istft::drain_ready()` streams reconstructed samples out between columns, so
+  long-running inverse transforms use bounded memory.
+- `Istft::reconstruct_with_len()` returns exactly the requested number of
+  samples. `reconstruct()` can be up to `hop - 1` samples shorter than the
+  analyzed signal.
+- `StftError::InvalidWindow` and `StftError::InvalidScale`.
+
+### Changed
+
+- `amplitude_to_db` clamps amplitudes at `1e-5` (was `1e-10`), so silence maps
+  to `-100 dB` like librosa's `amplitude_to_db`.
+- `MelFilterBank::new` panics on `n_fft == 0`, a non-positive sample rate, or
+  band edges outside `0 <= fmin < fmax <= sample_rate / 2`.
+- `MelFilterBank::transform` only visits the non-zero bins of each filter.
+- `Spectrogram::from_flat` panics on `n_freqs == 0`, instead of a later panic
+  in `columns()`.
+
+### Fixed
+
+- `Stft` and `Istft` builders reject windows with NaN or infinite
+  coefficients, and scale factors that are not finite or are zero (zero-sum
+  window with `Scaling::Magnitude`, a sample rate of `0` with
+  `Scaling::Density`, a forward scale of `0`). These used to produce NaN
+  spectrograms silently.
+- A NaN Tukey `alpha` gives a rectangular window instead of NaN coefficients.
+
 ## [0.4.0]
 
 This is a ground-up redesign with a clean, encapsulated API. The old `STFT`
